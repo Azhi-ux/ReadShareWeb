@@ -16,14 +16,29 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/user/Home.vue')
       },
       {
+        path: 'explore',
+        name: 'Explore',
+        component: () => import('../views/user/Explore.vue')
+      },
+      {
         path: 'notes',
         name: 'UserNotes',
         component: () => import('../views/user/Notes.vue')
       },
       {
+        path: 'collections',
+        name: 'Collections',
+        component: () => import('../views/user/Collections.vue')
+      },
+      {
         path: 'profile',
         name: 'UserProfile',
         component: () => import('../views/user/Profile.vue')
+      },
+      {
+        path: 'note/:id',
+        name: 'NoteDetail',
+        component: () => import('../views/user/NoteDetail.vue')
       }
     ]
   },

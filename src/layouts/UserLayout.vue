@@ -37,8 +37,14 @@ const handleLogout = () => {
           <el-menu-item index="/user">
             <el-icon><HomeFilled /></el-icon>首页
           </el-menu-item>
+          <el-menu-item index="/user/explore">
+            <el-icon><Compass /></el-icon>发现
+          </el-menu-item>
           <el-menu-item index="/user/notes">
             <el-icon><DocumentCopy /></el-icon>我的笔记
+          </el-menu-item>
+          <el-menu-item index="/user/collections">
+            <el-icon><Star /></el-icon>收藏夹
           </el-menu-item>
           <el-menu-item index="/user/profile">
             <el-icon><UserFilled /></el-icon>个人中心
