@@ -1,16 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useUserStore } from '../../stores/user'
-
-interface Note {
-  id: number
-  title: string
-  content: string
-  tags: string[]
-  createTime: string
-  lastModified: string
-  status: 'draft' | 'published'
-}
+import { noteApi } from '../../api'
+import type { Note, CreateNoteParams } from '../../api/types'
 
 const userStore = useUserStore()
 
@@ -53,57 +45,70 @@ const allTags = computed(() => {
 // 筛选后的笔记列表
 const filteredNotes = computed(() => {
   return notes.value.filter(note => {
-    // 搜索标题
     const matchesSearch = note.title.toLowerCase().includes(searchQuery.value.toLowerCase())
-    
-    // 标签筛选
     const matchesTags = selectedTags.value.length === 0 || 
       selectedTags.value.every(tag => note.tags.includes(tag))
-    
-    // 状态筛选
     const matchesStatus = statusFilter.value === 'all' || 
       note.status === statusFilter.value
-
     return matchesSearch && matchesTags && matchesStatus
   })
 })
 
 // 编辑笔记
 const showEditDialog = ref(false)
-const currentNote = ref<Note | null>(null)
+const currentNote = ref<CreateNoteParams>({
+  title: '',
+  content: '',
+  tags: [],
+  status: 'draft'
+})
+const editingNoteId = ref<number | null>(null)
 
 const editNote = (note: Note) => {
-  currentNote.value = { ...note }
+  editingNoteId.value = note.id
+  currentNote.value = {
+    title: note.title,
+    content: note.content,
+    tags: [...note.tags],
+    status: note.status
+  }
   showEditDialog.value = true
 }
 
-const saveNote = () => {
-  if (!currentNote.value) return
-  
-  const index = notes.value.findIndex(n => n.id === currentNote.value!.id)
-  if (index !== -1) {
-    notes.value[index] = {
-      ...currentNote.value,
-      lastModified: new Date().toLocaleString()
+const saveNote = async () => {
+  try {
+    if (editingNoteId.value) {
+      await noteApi.updateNote({
+        id: editingNoteId.value,
+        ...currentNote.value
+      })
+    } else {
+      await noteApi.createNote(currentNote.value)
     }
+    
+    ElMessage.success(editingNoteId.value ? '笔记已更新' : '笔记已创建')
+    showEditDialog.value = false
+    resetNoteForm()
+  } catch (error) {
+    ElMessage.error('操作失败，请重试')
   }
-  
-  showEditDialog.value = false
-  currentNote.value = null
 }
 
 // 创建新笔记
 const createNewNote = () => {
+  editingNoteId.value = null
+  resetNoteForm()
+  showEditDialog.value = true
+}
+
+// 重置表单
+const resetNoteForm = () => {
   currentNote.value = {
-    id: Date.now(),
     title: '',
     content: '',
     tags: [],
-    createTime: new Date().toLocaleString(),
-    lastModified: new Date().toLocaleString(),
     status: 'draft'
   }
-  showEditDialog.value = true
 }
 
 // 删除笔记
@@ -116,9 +121,14 @@ const deleteNote = (note: Note) => {
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    notes.value = notes.value.filter(n => n.id !== note.id)
-    ElMessage.success('笔记已删除')
+  ).then(async () => {
+    try {
+      await noteApi.deleteNote(note.id)
+      notes.value = notes.value.filter(n => n.id !== note.id)
+      ElMessage.success('笔记已删除')
+    } catch (error) {
+      ElMessage.error('删除失败，请重试')
+    }
   }).catch(() => {})
 }
 </script>
@@ -230,54 +240,83 @@ const deleteNote = (note: Note) => {
     <!-- 编辑笔记对话框 -->
     <el-dialog
       v-model="showEditDialog"
-      :title="currentNote?.id ? '编辑笔记' : '新建笔记'"
-      width="70%"
+      :title="editingNoteId ? '编辑笔记' : '新建笔记'"
+      width="80%"
       class="edit-dialog"
+      :close-on-click-modal="false"
+      :destroy-on-close="true"
     >
-      <el-form v-if="currentNote" label-position="top">
-        <el-form-item label="标题">
-          <el-input v-model="currentNote.title" placeholder="请输入笔记标题" />
-        </el-form-item>
-        
-        <el-form-item label="内容">
-          <el-input
-            v-model="currentNote.content"
-            type="textarea"
-            :rows="10"
-            placeholder="请输入笔记内容"
-          />
-        </el-form-item>
-        
-        <el-form-item label="标签">
-          <el-select
-            v-model="currentNote.tags"
-            multiple
-            filterable
-            allow-create
-            default-first-option
-            placeholder="请选择或创建标签"
+      <div class="edit-form">
+        <el-form :model="currentNote" label-position="top">
+          <el-form-item 
+            label="标题" 
+            required
+            :rules="[{ required: true, message: '请输入笔记标题' }]"
           >
-            <el-option
-              v-for="tag in allTags"
-              :key="tag"
-              :label="tag"
-              :value="tag"
+            <el-input 
+              v-model="currentNote.title" 
+              placeholder="请输入笔记标题"
+              maxlength="100"
+              show-word-limit
             />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="状态">
-          <el-radio-group v-model="currentNote.status">
-            <el-radio label="draft">草稿</el-radio>
-            <el-radio label="published">发布</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <el-button @click="showEditDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveNote">保存</el-button>
-      </template>
+          </el-form-item>
+          
+          <el-form-item 
+            label="内容" 
+            required
+            :rules="[{ required: true, message: '请输入笔记内容' }]"
+          >
+            <el-input
+              v-model="currentNote.content"
+              type="textarea"
+              :rows="15"
+              placeholder="请输入笔记内容"
+              resize="none"
+            />
+          </el-form-item>
+          
+          <div class="form-footer">
+            <div class="left-actions">
+              <el-form-item label="标签">
+                <el-select
+                  v-model="currentNote.tags"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="请选择或创建标签"
+                  class="tag-input"
+                >
+                  <el-option
+                    v-for="tag in allTags"
+                    :key="tag"
+                    :label="tag"
+                    :value="tag"
+                  />
+                </el-select>
+              </el-form-item>
+              
+              <el-form-item label="状态">
+                <el-radio-group v-model="currentNote.status">
+                  <el-radio label="draft">草稿</el-radio>
+                  <el-radio label="published">发布</el-radio>
+                </el-radio-group>
+              </el-form-item>
+            </div>
+            
+            <div class="dialog-footer">
+              <el-button @click="showEditDialog = false">取消</el-button>
+              <el-button 
+                type="primary" 
+                @click="saveNote"
+                :disabled="!currentNote.title || !currentNote.content"
+              >
+                保存
+              </el-button>
+            </div>
+          </div>
+        </el-form>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -287,6 +326,7 @@ const deleteNote = (note: Note) => {
   padding: 32px;
   margin: 24px;
   border-radius: var(--border-radius);
+  min-height: calc(100vh - 112px);
 }
 
 .top-bar {
@@ -365,11 +405,9 @@ const deleteNote = (note: Note) => {
 
 .note-tags {
   margin-bottom: 16px;
-}
-
-.tag {
-  margin-right: 8px;
-  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .note-footer {
@@ -398,13 +436,59 @@ const deleteNote = (note: Note) => {
 }
 
 .edit-dialog {
-  :deep(.el-dialog__body) {
-    padding: 32px;
+  :deep(.el-dialog) {
+    max-width: 1200px;
   }
+
+  :deep(.el-dialog__body) {
+    padding: 0;
+  }
+}
+
+.edit-form {
+  padding: 24px;
+}
+
+.form-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.left-actions {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.tag-input {
+  width: 300px;
+}
+
+.dialog-footer {
+  display: flex;
+  gap: 12px;
 }
 
 :deep(.el-form-item__label) {
   font-weight: 500;
   padding-bottom: 8px;
+}
+
+:deep(.el-card__body) {
+  padding: 20px;
+}
+
+.dark {
+  .note-footer {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .form-footer {
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
 }
 </style>
